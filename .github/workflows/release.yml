@@ -45,7 +45,16 @@ jobs:
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y libarchive-tools rpm
       - name: Install dependencies
+        if: matrix.platform != 'win' || matrix.arch != 'arm64'
         run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Install Windows ARM64 dependencies
+        if: matrix.platform == 'win' && matrix.arch == 'arm64'
+        run: |
+          npm ci --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+          npm rebuild electron esbuild sharp koffi @hicccc77/electron-liquid-glass
+          # ffmpeg-static has no Windows ARM64 binary. Its standalone x64 EXE
+          # runs through Windows 11 emulation; Node/Electron remain ARM64.
+          npm_config_arch=x64 node node_modules/ffmpeg-static/install.js
       - name: Set tag version and fork update repository
         env:
           BUILD_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
