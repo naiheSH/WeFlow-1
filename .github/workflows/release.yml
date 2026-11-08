@@ -66,6 +66,8 @@ jobs:
           const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
           p.build.publish = { provider: 'github', owner, repo };
           p.build.artifactName = '${productName}-${version}-${os}-${arch}.${ext}';
+          p.build.mac.target = ['dmg'];
+          p.build.linux.target = ['AppImage'];
           // Bundled VC runtime DLLs are x64-only; ARM64 uses its system runtime.
           if (process.platform === 'win32' && process.arch === 'arm64') p.build.win.extraFiles = [];
           fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
@@ -90,16 +92,12 @@ jobs:
           compression-level: 0
           path: |
             release/*.dmg
-            release/*.zip
             release/*.exe
             release/*.AppImage
-            release/*.tar.gz
-            release/*.blockmap
-            release/*.yml
 
   release:
-    name: Publish tagged release
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Publish direct installer downloads
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -112,14 +110,21 @@ jobs:
       - name: Publish installers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          BUILD_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
         shell: bash
         run: |
           set -euo pipefail
-          # Platform directories preserve update metadata with duplicate names.
-          # Publish installers only; artifacts retain metadata for inspection.
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --notes 'Unsigned CI builds. Database and media plugins must be configured separately; see docs/third-party-components.md.'
+          if [ -n "$BUILD_TAG" ]; then
+            TAG="$BUILD_TAG"
+            RELEASE_FLAGS=()
+          else
+            TAG="ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            RELEASE_FLAGS=(--prerelease --latest=false)
           fi
-          find installers -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.tar.gz' \) -print0 |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" "${RELEASE_FLAGS[@]}" --notes 'Download the installer for your platform and architecture directly from Assets: macOS .dmg, Windows .exe, Linux .AppImage. Unsigned builds; database and media plugins must be configured separately. See docs/third-party-components.md.'
+          fi
+          find installers -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) -print0 |
             xargs -0 gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "### Direct installer downloads" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
