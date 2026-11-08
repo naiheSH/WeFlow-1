@@ -43,7 +43,9 @@ function copyIfDifferent(sourcePath, targetPath) {
 }
 
 function main() {
-  if (process.platform !== 'win32') {
+  // The checked-in VC runtime DLLs are x64 binaries. Never copy them into
+  // an ARM64 Electron runtime.
+  if (process.platform !== 'win32' || process.arch !== 'x64') {
     return;
   }
 
